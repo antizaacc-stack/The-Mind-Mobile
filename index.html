@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Mind</title>
+<style>
+:root{--bg:#f4f1ea;--fg:#1d1b18;--mut:#7a746a;--cd:#fff;--bd:#d9d3c7;--ac:#d9480f;--ok:#2f9e44;--bad:#e03131;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light dark}
+@media (prefers-color-scheme:dark){:root{--bg:#15130f;--fg:#f1ede4;--mut:#9b9487;--cd:#23201a;--bd:#3a352b;--ac:#ff8a5c;--ok:#51cf66;--bad:#ff6b6b}}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:16px system-ui,-apple-system,"Segoe UI",sans-serif}
+main{height:100%;display:flex;flex-direction:column;max-width:520px;margin:0 auto;padding:12px 14px;box-sizing:border-box}
+#game{display:flex;flex-direction:column;flex:1;min-height:0;gap:10px}
+.box{background:var(--cd);border:1px solid var(--bd);border-radius:14px;padding:16px;margin-top:8vh}
+h1,h2{margin:0 0 8px}p{color:var(--mut);margin:6px 0}
+input{width:100%;box-sizing:border-box;padding:12px;margin:6px 0;border-radius:10px;border:1px solid var(--bd);background:var(--bg);color:var(--fg);font-size:16px}
+button{font:inherit;color:var(--fg);background:var(--cd);border:1px solid var(--bd);border-radius:12px;padding:10px 14px}
+button.big{width:100%;background:var(--ac);color:#fff;border:0;font-weight:700;padding:14px;margin-top:8px}
+button:disabled{opacity:.4}
+.top{display:flex;justify-content:space-between;align-items:center;font-size:18px}
+.top span:nth-child(2){color:var(--bad)}.top span:nth-child(3){color:#f59f00}
+.pl{display:flex;gap:6px;flex-wrap:wrap}
+.chip{flex:1;min-width:70px;background:var(--cd);border:2px solid var(--bd);border-radius:10px;padding:6px 8px;font-size:14px}
+.chip.ok{border-color:var(--ok)}.chip.off{opacity:.45}.chip small{display:block;color:var(--mut)}
+.mid{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;min-height:0}
+.pile{width:120px;height:170px;border-radius:14px;background:var(--cd);border:3px solid var(--fg);display:flex;align-items:center;justify-content:center;font-size:56px;font-weight:800}
+.hist{color:var(--mut);font-size:14px}.msg{color:var(--bad);min-height:20px;font-size:14px}
+#hand{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;padding-bottom:6px}
+.c{width:64px;height:92px;font-size:26px;font-weight:800;border:2px solid var(--bd)}
+.c.lo{border-color:var(--ac)}
+.end{font-size:28px;font-weight:800}
+#st{font-size:12px;color:var(--mut);text-align:center;min-height:16px}
+</style></head><body><main>
+<div id="join" class="box">
+<h1>The Mind</h1>
+<p>Game kartu kooperatif. 2 sampai 4 pemain, tiap orang pakai HP sendiri.</p>
+<input id="nm" placeholder="Nama kamu" maxlength="12" autocomplete="off">
+<input id="rc" placeholder="Kode ruang (bikin sendiri, misal ABCD)" maxlength="8" autocapitalize="characters" autocomplete="off">
+<button class="big" id="enter">Masuk ruang</button>
+</div>
+<div id="game" hidden></div>
+<div id="st"></div>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const L=k=>{try{return localStorage.getItem(k)||''}catch(e){return ''}}, W=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
+let PID=L('mind_pid');if(!PID){PID=Math.random().toString(36).slice(2,12);W('mind_pid',PID)}
+$('#nm').value=L('mind_name');
+$('#rc').value=(location.hash.slice(1)||L('mind_room')).replace(/[^A-Za-z0-9]/g,'').toUpperCase().slice(0,8);
+let ws=null,joined=false,V=null,lastErr=0,name='',room='';
+
+function connect(){
+  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host);
+  ws.onopen=()=>{$('#st').textContent='';tx({t:'join',room,name,pid:PID})};
+  ws.onmessage=e=>{V=JSON.parse(e.data);render()};
+  ws.onclose=()=>{if(joined){$('#st').textContent='Terputus, menyambung ulang...';setTimeout(connect,1500)}};
+}
+const tx=o=>{if(ws&&ws.readyState===1)ws.send(JSON.stringify(o))};
+setInterval(()=>tx({t:'ping'}),20000);
+
+function render(){
+  $('#join').hidden=joined;$('#game').hidden=!joined;if(!V)return;
+  const S=V,inG=S.players.includes(S.me),nm=id=>{const r=S.roster.find(x=>x.id===id);return esc(r?r.name:'?')+(id===S.me?' (kamu)':'')};
+  let h='';
+  if(S.phase==='lobby'){
+    h=`<div class="box"><h2>Ruang ${esc(S.room)}</h2><p>Suruh teman masuk dengan kode ini (2-4 pemain).</p>
+    <ul>${S.roster.map(r=>`<li>${nm(r.id)}</li>`).join('')}</ul>
+    <button class="big" id="go" ${S.roster.length<2?'disabled':''}>Mulai game</button></div>`;
+  }else{
+    const over=S.phase==='won'||S.phase==='lost',top=S.pile[S.pile.length-1],nv=Object.keys(S.votes).length;
+    h=`<div class="top"><b>Level ${S.lvl}/${S.max}</b><span>${'♥'.repeat(Math.max(S.lives,0))||'-'}</span><span>${'★'.repeat(S.stars)||'-'}</span></div>
+    <div class="pl">${S.players.map(p=>{const r=S.roster.find(x=>x.id===p);return `<div class="chip ${S.ready[p]&&S.phase==='ready'?'ok':''} ${r&&r.on?'':'off'}">${nm(p)}<small>${S.counts[p]} kartu${S.votes[p]?' · ★ setuju':''}${r&&r.on?'':' · offline'}</small></div>`}).join('')}</div>
+    <div class="mid"><div class="pile">${top||'·'}</div><div class="hist">${S.pile.slice(-9,-1).join(' · ')}</div><div class="msg">${esc(S.msg)}</div>
+    ${over?`<div class="end">${S.phase==='won'?'MENANG! 🎉':'KALAH 💀'}</div><button class="big" id="go">Main lagi</button>`:''}</div>`;
+    if(!over&&inG){
+      if(S.phase==='ready')h+=S.ready[S.me]?'<p style="text-align:center">Menunggu pemain lain siap...</p>':'<button class="big" id="rd">✋ Siap (tangan di meja)</button>';
+      else if(S.stars>0)h+=S.votes[S.me]?`<button id="sc">Batal shuriken (${nv}/${S.players.length})</button>`:`<button id="sv">★ Shuriken (${nv}/${S.players.length})</button>`;
+    }
+    if(!inG&&!over)h+='<p style="text-align:center">Kamu menonton (game sudah dimulai).</p>';
+    h+=`<div id="hand">${S.hand.map((c,i)=>`<button class="c ${i?'':'lo'}" data-c="${c}" ${S.phase==='play'?'':'disabled'}>${c}</button>`).join('')}</div>`;
+  }
+  $('#game').innerHTML=h;
+  if(S.err>lastErr){lastErr=S.err;try{navigator.vibrate(300)}catch(e){}}
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  if(b.id==='enter'){
+    name=$('#nm').value.trim().slice(0,12);room=$('#rc').value.replace(/[^A-Za-z0-9]/g,'').toUpperCase().slice(0,8);
+    if(!name||room.length<3){$('#st').textContent='Isi nama dan kode ruang (min. 3 karakter).';return}
+    W('mind_name',name);W('mind_room',room);joined=true;connect();
+  }
+  else if(b.id==='go')tx({t:'start'});
+  else if(b.id==='rd')tx({t:'ready'});
+  else if(b.id==='sv')tx({t:'sv'});
+  else if(b.id==='sc')tx({t:'sc'});
+  else if(b.dataset.c)tx({t:'play',c:+b.dataset.c});
+});
+</script></body></html>
